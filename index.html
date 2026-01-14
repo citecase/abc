@@ -3,88 +3,106 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>JSON Search</title>
+  <title>Simple Text Search</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    input { padding: 0.6rem; width: 100%; max-width: 500px; font-size: 1.1rem; }
+    input { width: 100%; padding: 0.8rem; font-size: 1.1rem; box-sizing: border-box; }
     #results { margin-top: 1.5rem; }
-    .item { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
-    .highlight { background: #fff3cd; }
+    .card {
+      border: 1px solid #ddd; border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .title { font-size: 1.3rem; margin: 0 0 0.6rem; color: #0066cc; }
+    .highlight { background: #fff3cd; padding: 1px 3px; border-radius: 3px; }
+    .meta { color: #555; font-size: 0.95rem; margin: 0.4rem 0; }
     .no-results { color: #777; font-style: italic; }
   </style>
 </head>
 <body>
 
-  <h1>Search in JSON data</h1>
-  
-  <input type="text" id="search" placeholder="Type to search (e.g. name, city, keyword...)" autocomplete="off" autofocus />
-  
+  <h1>Search Items</h1>
+  <input type="search" id="search" placeholder="Search titles, features, prices..." autofocus />
+
   <div id="results"></div>
 
   <script>
-    // ────────────────────────────────────────────────
-    //  CONFIG – change these two lines to match your setup
-    // ────────────────────────────────────────────────
-    const JSON_PATH = "data.json";                     // or "folder/data.json"
-    const SEARCH_FIELDS = ["name", "title", "city", "description", "tags"]; // ← add your field names here
-
-    const input = document.getElementById("search");
+    const DATA_FOLDER = "data/";               // change if your folder is named differently
+    const FILE_EXTENSION = ".txt";             // or ".md"
+    const searchInput = document.getElementById("search");
     const resultsDiv = document.getElementById("results");
 
-    let data = [];
+    let items = [];  // will hold {filename, content, lowerContent}
 
-    // Load JSON once when page opens
-    fetch(JSON_PATH)
-      .then(res => {
-        if (!res.ok) throw new Error("Could not load " + JSON_PATH);
-        return res.json();
-      })
-      .then(json => {
-        data = Array.isArray(json) ? json : [json]; // handle both array and single object
-        resultsDiv.innerHTML = `<p style="color:#555">Loaded ${data.length} items. Start typing to search.</p>`;
-      })
-      .catch(err => {
-        resultsDiv.innerHTML = `<p style="color:red">Error: ${err.message}</p>`;
-        console.error(err);
-      });
+    // 1. List your files here manually (easiest & most reliable for small/medium size)
+    const filenames = [
+      "item-001.txt",
+      "item-002.txt",
+      "apple-iphone.txt",
+      "samsung-galaxy.txt",
+      // add more filenames here as you create files
+      // or generate this list once and paste it
+    ];
 
-    // Live search on every keystroke
-    input.addEventListener("input", () => {
-      const term = input.value.trim().toLowerCase();
-      
+    // 2. Load all files at startup
+    async function loadData() {
+      resultsDiv.innerHTML = "<p>Loading...</p>";
+      items = [];
+
+      for (const name of filenames) {
+        try {
+          const res = await fetch(DATA_FOLDER + name);
+          if (!res.ok) continue;
+          const text = await res.text();
+          items.push({
+            filename: name,
+            content: text,
+            lower: text.toLowerCase()
+          });
+        } catch(e) {}
+      }
+
+      resultsDiv.innerHTML = `<p>Loaded ${items.length} items. Start typing.</p>`;
+    }
+
+    loadData();
+
+    // 3. Live search
+    searchInput.addEventListener("input", () => {
+      const term = searchInput.value.trim().toLowerCase();
       if (term.length < 1) {
         resultsDiv.innerHTML = "";
         return;
       }
 
-      const matches = data.filter(item => {
-        return SEARCH_FIELDS.some(field => {
-          const value = item[field];
-          if (value == null) return false;
-          return String(value).toLowerCase().includes(term);
-        });
-      });
+      const matches = items.filter(item => item.lower.includes(term));
 
       if (matches.length === 0) {
-        resultsDiv.innerHTML = '<p class="no-results">No matching items found.</p>';
+        resultsDiv.innerHTML = '<p class="no-results">No matches found.</p>';
         return;
       }
 
-      // Render results
       resultsDiv.innerHTML = matches.map(item => {
-        let html = '<div class="item">';
-        // Show all fields (you can customize this part heavily)
-        for (const [key, val] of Object.entries(item)) {
-          let displayVal = val;
-          if (typeof val === "string" && val.toLowerCase().includes(term)) {
-            // Very basic highlight
-            const regex = new RegExp(`(${term})`, "gi");
-            displayVal = val.replace(regex, '<span class="highlight">$1</span>');
-          }
-          html += `<strong>${key}:</strong> ${displayVal}<br>`;
+        let display = item.content
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")  // safe
+          .replace(/\n/g, "<br>");  // preserve lines
+
+        // highlight matches (simple)
+        if (term) {
+          const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "gi");
+          display = display.replace(regex, '<span class="highlight">$1</span>');
         }
-        html += '</div>';
-        return html;
+
+        // optional: try to extract Title if present
+        let title = item.filename.replace(FILE_EXTENSION, '');
+        const titleMatch = item.content.match(/^Title:\s*(.+)$/im);
+        if (titleMatch) title = titleMatch[1];
+
+        return `
+          <div class="card">
+            <div class="title">${title}</div>
+            <div>${display}</div>
+          </div>
+        `;
       }).join("");
     });
   </script>
