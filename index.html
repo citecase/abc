@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>JSON Search</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    input { padding: 0.6rem; width: 100%; max-width: 500px; font-size: 1.1rem; }
+    #results { margin-top: 1.5rem; }
+    .item { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 6px; }
+    .highlight { background: #fff3cd; }
+    .no-results { color: #777; font-style: italic; }
+  </style>
+</head>
+<body>
+
+  <h1>Search in JSON data</h1>
+  
+  <input type="text" id="search" placeholder="Type to search (e.g. name, city, keyword...)" autocomplete="off" autofocus />
+  
+  <div id="results"></div>
+
+  <script>
+    // ────────────────────────────────────────────────
+    //  CONFIG – change these two lines to match your setup
+    // ────────────────────────────────────────────────
+    const JSON_PATH = "data.json";                     // or "folder/data.json"
+    const SEARCH_FIELDS = ["name", "title", "city", "description", "tags"]; // ← add your field names here
+
+    const input = document.getElementById("search");
+    const resultsDiv = document.getElementById("results");
+
+    let data = [];
+
+    // Load JSON once when page opens
+    fetch(JSON_PATH)
+      .then(res => {
+        if (!res.ok) throw new Error("Could not load " + JSON_PATH);
+        return res.json();
+      })
+      .then(json => {
+        data = Array.isArray(json) ? json : [json]; // handle both array and single object
+        resultsDiv.innerHTML = `<p style="color:#555">Loaded ${data.length} items. Start typing to search.</p>`;
+      })
+      .catch(err => {
+        resultsDiv.innerHTML = `<p style="color:red">Error: ${err.message}</p>`;
+        console.error(err);
+      });
+
+    // Live search on every keystroke
+    input.addEventListener("input", () => {
+      const term = input.value.trim().toLowerCase();
+      
+      if (term.length < 1) {
+        resultsDiv.innerHTML = "";
+        return;
+      }
+
+      const matches = data.filter(item => {
+        return SEARCH_FIELDS.some(field => {
+          const value = item[field];
+          if (value == null) return false;
+          return String(value).toLowerCase().includes(term);
+        });
+      });
+
+      if (matches.length === 0) {
+        resultsDiv.innerHTML = '<p class="no-results">No matching items found.</p>';
+        return;
+      }
+
+      // Render results
+      resultsDiv.innerHTML = matches.map(item => {
+        let html = '<div class="item">';
+        // Show all fields (you can customize this part heavily)
+        for (const [key, val] of Object.entries(item)) {
+          let displayVal = val;
+          if (typeof val === "string" && val.toLowerCase().includes(term)) {
+            // Very basic highlight
+            const regex = new RegExp(`(${term})`, "gi");
+            displayVal = val.replace(regex, '<span class="highlight">$1</span>');
+          }
+          html += `<strong>${key}:</strong> ${displayVal}<br>`;
+        }
+        html += '</div>';
+        return html;
+      }).join("");
+    });
+  </script>
+
+</body>
+</html>
