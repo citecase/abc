@@ -1,111 +1,407 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Simple Text Search</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-    input { width: 100%; padding: 0.8rem; font-size: 1.1rem; box-sizing: border-box; }
-    #results { margin-top: 1.5rem; }
-    .card {
-      border: 1px solid #ddd; border-radius: 8px; padding: 1.2rem; margin-bottom: 1rem;
-      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    .title { font-size: 1.3rem; margin: 0 0 0.6rem; color: #0066cc; }
-    .highlight { background: #fff3cd; padding: 1px 3px; border-radius: 3px; }
-    .meta { color: #555; font-size: 0.95rem; margin: 0.4rem 0; }
-    .no-results { color: #777; font-style: italic; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CiteCase Wiki Search</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f9fafb;
+            color: #111827;
+        }
+
+        .splash-overlay {
+            position: fixed;
+            inset: 0;
+            background: white;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease-out;
+        }
+
+        .loader-bar {
+            width: 240px;
+            height: 6px;
+            background: #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+
+        .loader-progress {
+            width: 0%;
+            height: 100%;
+            background: #2563eb;
+            transition: width 0.4s cubic-bezier(0.1, 0.7, 1.0, 0.1);
+        }
+
+        mark {
+            background-color: #fef08a;
+            color: #111827;
+            padding: 0 2px;
+            border-radius: 2px;
+            font-weight: 500;
+        }
+
+        .search-result-card {
+            transition: all 0.2s ease;
+            border-left: 4px solid transparent;
+        }
+
+        .search-result-card:hover {
+            transform: translateX(4px);
+            border-left-color: #2563eb;
+            background: white;
+            box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.05);
+        }
+
+        .glass-header {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid #e5e7eb;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+        #error-ui {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+            max-width: 400px;
+        }
+    </style>
 </head>
 <body>
 
-  <h1>Search Items</h1>
-  <input type="search" id="search" placeholder="Search titles, features, prices..." autofocus />
+    <!-- Splash Screen -->
+    <div id="splash" class="splash-overlay">
+        <div id="splash-content" class="flex flex-col items-center">
+            <div class="flex items-center gap-3 mb-4">
+                <div class="bg-blue-600 text-white p-3 rounded-xl shadow-lg shadow-blue-200">
+                    <i class="fas fa-balance-scale text-2xl"></i>
+                </div>
+                <h1 class="text-3xl font-black text-gray-900 tracking-tight">CiteCase <span class="text-blue-600">I</span></h1>
+            </div>
+            <div id="status-text" class="text-gray-500 font-medium animate-pulse">Fetching latest judgments...</div>
+            <div id="loader-container" class="loader-bar">
+                <div id="progress" class="loader-progress"></div>
+            </div>
+            
+            <!-- Error Fallback UI -->
+            <div id="error-ui">
+                <i class="fas fa-exclamation-triangle text-red-500 text-3xl mb-4"></i>
+                <h2 class="text-lg font-bold mb-2">Connection Failed</h2>
+                <p id="error-message" class="text-sm text-gray-500 mb-6">We couldn't reach the Wiki archives. This usually happens because the Wiki page is private or the URL is incorrect.</p>
+                <button onclick="location.reload()" class="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all">
+                    Retry Connection
+                </button>
+            </div>
+        </div>
+    </div>
 
-  <div id="results"></div>
+    <!-- Main Interface -->
+    <div class="min-h-screen pb-20">
+        <header class="glass-header py-4 px-6">
+            <div class="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+                <div class="flex items-center gap-3 cursor-pointer" onclick="location.reload()">
+                    <div class="bg-blue-600 text-white p-2 rounded-lg">
+                        <i class="fas fa-search"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-xl leading-none">CiteCase I</h1>
+                        <span class="text-[10px] text-gray-400 font-bold tracking-widest uppercase">Live Wiki Index</span>
+                    </div>
+                </div>
 
-  <script>
-    const DATA_FOLDER = "data/";               // change if your folder is named differently
-    const FILE_EXTENSION = ".txt";             // or ".md"
-    const searchInput = document.getElementById("search");
-    const resultsDiv = document.getElementById("results");
+                <div class="relative w-full md:w-full max-w-xl">
+                    <input type="text" id="searchInput" 
+                        placeholder="Search cases, laws, or paragraphs..." 
+                        class="w-full pl-12 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 focus:bg-white outline-none transition-all text-lg shadow-sm">
+                    <i class="fas fa-search absolute left-4 top-4 text-gray-400"></i>
+                </div>
+            </div>
 
-    let items = [];  // will hold {filename, content, lowerContent}
+            <!-- Search Options -->
+            <div class="max-w-5xl mx-auto mt-4 flex flex-wrap gap-6 items-center justify-center md:justify-end text-sm">
+                <div class="flex items-center gap-4 text-gray-600">
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors">
+                        <input type="radio" name="logic" value="and" checked class="w-4 h-4 text-blue-600 focus:ring-blue-500">
+                        <span class="font-medium">All Words</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors">
+                        <input type="radio" name="logic" value="exact" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
+                        <span class="font-medium">Exact Match</span>
+                    </label>
+                    <label class="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors">
+                        <input type="radio" name="logic" value="or" class="w-4 h-4 text-blue-600 focus:ring-blue-500">
+                        <span class="font-medium">Any Word</span>
+                    </label>
+                </div>
+            </div>
+        </header>
 
-    // 1. List your files here manually (easiest & most reliable for small/medium size)
-    const filenames = [
-      "test.md",
-      "item-002.txt",
-      "apple-iphone.txt",
-      "samsung-galaxy.txt",
-      // add more filenames here as you create files
-      // or generate this list once and paste it
-    ];
+        <!-- Stats Bar -->
+        <div class="max-w-5xl mx-auto px-6 py-6 flex flex-col md:flex-row justify-between items-center gap-2">
+            <div id="statsCount" class="text-gray-500 font-medium">Ready for search...</div>
+            <div id="searchSpeed" class="text-xs text-blue-500 font-mono opacity-0 transition-opacity duration-300 uppercase tracking-tighter"></div>
+        </div>
 
-    // 2. Load all files at startup
-    async function loadData() {
-      resultsDiv.innerHTML = "<p>Loading...</p>";
-      items = [];
+        <!-- Content Area -->
+        <main id="resultsList" class="max-w-5xl mx-auto px-6 space-y-4">
+            <div class="py-20 text-center opacity-50">
+                <i class="fas fa-book-open text-4xl mb-4"></i>
+                <p>Start typing to search the archives</p>
+            </div>
+        </main>
+    </div>
 
-      for (const name of filenames) {
-        try {
-          const res = await fetch(DATA_FOLDER + name);
-          if (!res.ok) continue;
-          const text = await res.text();
-          items.push({
-            filename: name,
-            content: text,
-            lower: text.toLowerCase()
-          });
-        } catch(e) {}
-      }
+    <footer class="fixed bottom-0 w-full bg-white/80 backdrop-blur-sm border-t border-gray-100 py-3 px-6 flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase tracking-widest z-50">
+        <div>CiteCase Archives &copy; 2026</div>
+        <div>Source: GitHub Wiki Live API</div>
+    </footer>
 
-      resultsDiv.innerHTML = `<p>Loaded ${items.length} items. Start typing.</p>`;
-    }
+    <script>
+        /**
+         * UPDATED CONFIGURATION
+         * Using the standard GitHub Wiki raw proxy which is more reliable.
+         */
+        const WIKI_URL = "https://raw.githubusercontent.com/wiki/citecase/I/Home.md";
+        let judgmentData = [];
 
-    loadData();
+        // UI Elements
+        const splash = document.getElementById('splash');
+        const progress = document.getElementById('progress');
+        const statusText = document.getElementById('status-text');
+        const loaderContainer = document.getElementById('loader-container');
+        const errorUI = document.getElementById('error-ui');
+        const searchInput = document.getElementById('searchInput');
+        const resultsList = document.getElementById('resultsList');
+        const statsCount = document.getElementById('statsCount');
+        const searchSpeed = document.getElementById('searchSpeed');
 
-    // 3. Live search
-    searchInput.addEventListener("input", () => {
-      const term = searchInput.value.trim().toLowerCase();
-      if (term.length < 1) {
-        resultsDiv.innerHTML = "";
-        return;
-      }
+        function parseWikiMarkdown(markdown) {
+            const lines = markdown.split('\n');
+            const entries = [];
+            let currentEntry = null;
 
-      const matches = items.filter(item => item.lower.includes(term));
+            lines.forEach(line => {
+                line = line.trim();
+                if (!line) return;
 
-      if (matches.length === 0) {
-        resultsDiv.innerHTML = '<p class="no-results">No matches found.</p>';
-        return;
-      }
+                // Match [Title](Link)
+                const titleMatch = line.match(/^\[(.*?)\]\((.*?)\)/);
+                
+                if (titleMatch) {
+                    if (currentEntry) entries.push(currentEntry);
+                    
+                    const fullTitle = titleMatch[1];
+                    const parts = fullTitle.split(' - ');
+                    const caseNameParts = parts[0].split(' ');
+                    
+                    // Simple citation extraction: assume last 3 words if they look like a citation
+                    const citation = caseNameParts.length > 2 ? caseNameParts.slice(-3).join(' ') : "N/A";
+                    const title = caseNameParts.length > 2 ? caseNameParts.slice(0, -3).join(' ') : parts[0];
+                    const category = parts.length > 1 ? parts.slice(1).join(' - ') : 'General';
 
-      resultsDiv.innerHTML = matches.map(item => {
-        let display = item.content
-          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")  // safe
-          .replace(/\n/g, "<br>");  // preserve lines
+                    currentEntry = {
+                        id: entries.length + 1,
+                        title: title,
+                        citation: citation,
+                        category: category,
+                        link: titleMatch[2],
+                        paragraphs: []
+                    };
+                } else if (currentEntry) {
+                    currentEntry.paragraphs.push(line);
+                }
+            });
 
-        // highlight matches (simple)
-        if (term) {
-          const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, "gi");
-          display = display.replace(regex, '<span class="highlight">$1</span>');
+            if (currentEntry) entries.push(currentEntry);
+            return entries;
         }
 
-        // optional: try to extract Title if present
-        let title = item.filename.replace(FILE_EXTENSION, '');
-        const titleMatch = item.content.match(/^Title:\s*(.+)$/im);
-        if (titleMatch) title = titleMatch[1];
+        async function initializeApp() {
+            try {
+                updateProgress(20, "Connecting to GitHub...");
+                
+                // Add timestamp to bypass caching so updates reflect immediately
+                const cacheBuster = `?t=${Date.now()}`;
+                
+                const response = await fetch(WIKI_URL + cacheBuster, {
+                    cache: "no-store", 
+                    mode: "cors"
+                });
+                
+                if (!response.ok) {
+                    // Try without .md extension as fallback
+                    const fallbackUrl = WIKI_URL.replace('.md', '') + cacheBuster;
+                    const fallbackResponse = await fetch(fallbackUrl, { cache: "no-store" });
+                    
+                    if (!fallbackResponse.ok) {
+                        throw new Error(`Server returned ${response.status}: Path not found. Check if the Wiki is public.`);
+                    }
+                    return await processResponse(fallbackResponse);
+                }
+                
+                await processResponse(response);
 
-        return `
-          <div class="card">
-            <div class="title">${title}</div>
-            <div>${display}</div>
-          </div>
-        `;
-      }).join("");
-    });
-  </script>
+            } catch (error) {
+                console.error("Initialization error:", error);
+                showError(error.message);
+            }
+        }
 
+        async function processResponse(response) {
+            updateProgress(50, "Downloading Repository Content...");
+            const markdown = await response.text();
+            
+            updateProgress(80, "Indexing Paragraphs...");
+            judgmentData = parseWikiMarkdown(markdown);
+            
+            updateProgress(100, "Sync Complete");
+            
+            setTimeout(() => {
+                splash.style.opacity = '0';
+                setTimeout(() => {
+                    splash.style.display = 'none';
+                    renderResults(judgmentData.slice(0, 10), false);
+                    statsCount.innerText = `Archive Loaded: ${judgmentData.length} judgments indexed.`;
+                }, 500);
+            }, 800);
+        }
+
+        function updateProgress(val, text) {
+            progress.style.width = val + '%';
+            statusText.innerText = text;
+        }
+
+        function showError(msg) {
+            statusText.style.display = 'none';
+            loaderContainer.style.display = 'none';
+            errorUI.style.display = 'block';
+            document.getElementById('error-message').innerText = msg || "Connection failed. Ensure the Wiki is public and try again.";
+        }
+
+        function performSearch() {
+            const query = searchInput.value.toLowerCase().trim();
+            const logic = document.querySelector('input[name="logic"]:checked').value;
+            const startTime = performance.now();
+
+            if (!query) {
+                renderResults(judgmentData.slice(0, 10), false);
+                statsCount.innerText = `Displaying latest ${Math.min(10, judgmentData.length)} entries.`;
+                searchSpeed.style.opacity = '0';
+                return;
+            }
+
+            const terms = query.split(/\s+/);
+            
+            const results = judgmentData.filter(doc => {
+                const searchString = `${doc.title} ${doc.citation} ${doc.category} ${doc.paragraphs.join(' ')}`.toLowerCase();
+                
+                if (logic === 'exact') {
+                    return searchString.includes(query);
+                } else if (logic === 'and') {
+                    return terms.every(term => searchString.includes(term));
+                } else {
+                    return terms.some(term => searchString.includes(term));
+                }
+            });
+
+            const endTime = performance.now();
+            const duration = (endTime - startTime).toFixed(2);
+
+            renderResults(results, true, query);
+            
+            statsCount.innerText = `Found ${results.length} matches for "${query}"`;
+            searchSpeed.innerText = `Analyzed ${judgmentData.length} records in ${duration}ms`;
+            searchSpeed.style.opacity = '1';
+        }
+
+        function highlightText(text, query) {
+            if (!query) return text;
+            const terms = query.split(/\s+/).filter(t => t.length > 1);
+            if (terms.length === 0) return text;
+
+            let highlighted = text;
+            terms.sort((a, b) => b.length - a.length);
+            
+            const logic = document.querySelector('input[name="logic"]:checked').value;
+            if (logic === 'exact') {
+                const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                return text.replace(regex, '<mark>$1</mark>');
+            }
+
+            terms.forEach(term => {
+                const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                highlighted = highlighted.replace(regex, '<mark>$1</mark>');
+            });
+            return highlighted;
+        }
+
+        function renderResults(data, isSearch, query = "") {
+            if (data.length === 0) {
+                resultsList.innerHTML = `
+                    <div class="py-20 text-center text-gray-400">
+                        <i class="fas fa-search-minus text-4xl mb-4"></i>
+                        <p class="text-lg">No results found for your search criteria.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            resultsList.innerHTML = data.map(doc => `
+                <div class="search-result-card bg-white p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden">
+                    <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-3">
+                        <div class="flex-1">
+                            <div class="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                <i class="fas fa-tag"></i> ${highlightText(doc.category, query)}
+                            </div>
+                            <h3 class="text-lg font-bold text-gray-900 leading-tight mb-1">
+                                ${highlightText(doc.title, query)}
+                            </h3>
+                            <div class="text-sm font-mono text-gray-500 font-bold">
+                                ${highlightText(doc.citation, query)}
+                            </div>
+                        </div>
+                        <a href="${doc.link}" target="_blank" class="flex items-center justify-center gap-2 bg-gray-50 hover:bg-blue-600 hover:text-white text-gray-600 px-4 py-2 rounded-xl text-sm font-bold transition-all border border-gray-100 shrink-0">
+                            <i class="fas fa-file-pdf"></i> View Case
+                        </a>
+                    </div>
+                    <div class="space-y-3 pt-3 border-t border-gray-50">
+                        ${doc.paragraphs.map(p => `
+                            <p class="text-sm text-gray-600 leading-relaxed">
+                                ${highlightText(p, query)}
+                            </p>
+                        `).join('')}
+                    </div>
+                    <div class="absolute top-0 right-0 p-1 opacity-[0.03] pointer-events-none">
+                        <i class="fas fa-balance-scale text-6xl"></i>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        searchInput.addEventListener('input', performSearch);
+        document.querySelectorAll('input[name="logic"]').forEach(el => {
+            el.addEventListener('change', performSearch);
+        });
+
+        window.onload = initializeApp;
+    </script>
 </body>
 </html>
