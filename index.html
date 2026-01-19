@@ -96,18 +96,17 @@
                 </div>
                 <h1 class="text-3xl font-black text-gray-900 tracking-tight">CiteCase <span class="text-blue-600">I</span></h1>
             </div>
-            <div id="status-text" class="text-gray-500 font-medium animate-pulse">Fetching latest judgments...</div>
+            <div id="status-text" class="text-gray-500 font-medium animate-pulse">Deep-Scanning Archives...</div>
             <div id="loader-container" class="loader-bar">
                 <div id="progress" class="loader-progress"></div>
             </div>
             
-            <!-- Error Fallback UI -->
             <div id="error-ui">
                 <i class="fas fa-exclamation-triangle text-red-500 text-3xl mb-4"></i>
-                <h2 class="text-lg font-bold mb-2">Connection Failed</h2>
-                <p id="error-message" class="text-sm text-gray-500 mb-6">We couldn't reach the Wiki archives. This usually happens because the Wiki page is private or the URL is incorrect.</p>
+                <h2 class="text-lg font-bold mb-2">Sync Failed</h2>
+                <p id="error-message" class="text-sm text-gray-500 mb-6"></p>
                 <button onclick="location.reload()" class="bg-blue-600 text-white px-6 py-2 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-all">
-                    Retry Connection
+                    Retry Sync
                 </button>
             </div>
         </div>
@@ -135,7 +134,6 @@
                 </div>
             </div>
 
-            <!-- Search Options -->
             <div class="max-w-5xl mx-auto mt-4 flex flex-wrap gap-6 items-center justify-center md:justify-end text-sm">
                 <div class="flex items-center gap-4 text-gray-600">
                     <label class="flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors">
@@ -154,35 +152,28 @@
             </div>
         </header>
 
-        <!-- Stats Bar -->
         <div class="max-w-5xl mx-auto px-6 py-6 flex flex-col md:flex-row justify-between items-center gap-2">
-            <div id="statsCount" class="text-gray-500 font-medium">Ready for search...</div>
+            <div id="statsCount" class="text-gray-500 font-medium">Initializing search...</div>
             <div id="searchSpeed" class="text-xs text-blue-500 font-mono opacity-0 transition-opacity duration-300 uppercase tracking-tighter"></div>
         </div>
 
-        <!-- Content Area -->
         <main id="resultsList" class="max-w-5xl mx-auto px-6 space-y-4">
             <div class="py-20 text-center opacity-50">
-                <i class="fas fa-book-open text-4xl mb-4"></i>
-                <p>Start typing to search the archives</p>
+                <i class="fas fa-spinner fa-spin text-4xl mb-4"></i>
+                <p>Loading database...</p>
             </div>
         </main>
     </div>
 
     <footer class="fixed bottom-0 w-full bg-white/80 backdrop-blur-sm border-t border-gray-100 py-3 px-6 flex justify-between items-center text-[10px] text-gray-400 font-bold uppercase tracking-widest z-50">
         <div>CiteCase Archives &copy; 2026</div>
-        <div>Source: GitHub Wiki Live API</div>
+        <div>Source: GitHub Wiki API (Live)</div>
     </footer>
 
     <script>
-        /**
-         * UPDATED CONFIGURATION
-         * Using the standard GitHub Wiki raw proxy which is more reliable.
-         */
-        const WIKI_URL = "https://raw.githubusercontent.com/wiki/citecase/I/Home.md";
+        const WIKI_BASE = "https://raw.githubusercontent.com/wiki/citecase/I";
         let judgmentData = [];
 
-        // UI Elements
         const splash = document.getElementById('splash');
         const progress = document.getElementById('progress');
         const statusText = document.getElementById('status-text');
@@ -193,40 +184,77 @@
         const statsCount = document.getElementById('statsCount');
         const searchSpeed = document.getElementById('searchSpeed');
 
+        /**
+         * Enhanced Stateful Parser
+         * Scans line by line and groups all text following a link into that link's entry.
+         */
         function parseWikiMarkdown(markdown) {
             const lines = markdown.split('\n');
             const entries = [];
             let currentEntry = null;
 
-            lines.forEach(line => {
-                line = line.trim();
-                if (!line) return;
+            // Regex for any Markdown link: [Title](URL)
+            const linkRegex = /\[(.*?)\]\((https?:\/\/.*?)\)/;
 
-                // Match [Title](Link)
-                const titleMatch = line.match(/^\[(.*?)\]\((.*?)\)/);
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) return;
+
+                const match = trimmedLine.match(linkRegex);
                 
-                if (titleMatch) {
+                if (match) {
+                    // Start a new judgment entry
                     if (currentEntry) entries.push(currentEntry);
                     
-                    const fullTitle = titleMatch[1];
-                    const parts = fullTitle.split(' - ');
-                    const caseNameParts = parts[0].split(' ');
-                    
-                    // Simple citation extraction: assume last 3 words if they look like a citation
-                    const citation = caseNameParts.length > 2 ? caseNameParts.slice(-3).join(' ') : "N/A";
-                    const title = caseNameParts.length > 2 ? caseNameParts.slice(0, -3).join(' ') : parts[0];
-                    const category = parts.length > 1 ? parts.slice(1).join(' - ') : 'General';
+                    const label = match[1].replace(/\*\*/g, '').replace(/#/g, '').trim();
+                    const url = match[2];
+
+                    // Smart split for Category vs Case Name
+                    // Handles "Case Name 2026 INSC 69 - Category"
+                    const parts = label.split(' - ');
+                    const mainTitle = parts[0].trim();
+                    const category = parts.length > 1 ? parts.slice(1).join(' - ').trim() : 'Uncategorized';
+
+                    // Try to isolate the citation from the end of the title
+                    const words = mainTitle.split(/\s+/);
+                    let citation = "Citation N/A";
+                    let title = mainTitle;
+
+                    if (words.length >= 3) {
+                        // Check if the last part looks like a citation (has numbers)
+                        const lastThree = words.slice(-3).join(' ');
+                        if (/\d/.test(lastThree)) {
+                            citation = lastThree;
+                            title = words.slice(0, -3).join(' ');
+                        }
+                    }
 
                     currentEntry = {
                         id: entries.length + 1,
                         title: title,
                         citation: citation,
                         category: category,
-                        link: titleMatch[2],
+                        link: url,
                         paragraphs: []
                     };
+
+                    // If the line had text BEFORE the link, add it as the first paragraph
+                    const beforeLink = trimmedLine.split(match[0])[0].replace(/#/g, '').trim();
+                    if (beforeLink.length > 3) {
+                        currentEntry.paragraphs.push(beforeLink);
+                    }
+                    
+                    // If the line had text AFTER the link, add it as a paragraph
+                    const afterLink = trimmedLine.split(match[0])[1].trim();
+                    if (afterLink.length > 0) {
+                        currentEntry.paragraphs.push(afterLink);
+                    }
                 } else if (currentEntry) {
-                    currentEntry.paragraphs.push(line);
+                    // Append text to the current judgment
+                    // Filter out purely decorative lines like horizontal rules
+                    if (!/^[-*_=]{3,}$/.test(trimmedLine)) {
+                        currentEntry.paragraphs.push(trimmedLine);
+                    }
                 }
             });
 
@@ -236,52 +264,56 @@
 
         async function initializeApp() {
             try {
-                updateProgress(20, "Connecting to GitHub...");
+                updateProgress(20, "Establishing Connection...");
                 
-                // Add timestamp to bypass caching so updates reflect immediately
                 const cacheBuster = `?t=${Date.now()}`;
-                
-                const response = await fetch(WIKI_URL + cacheBuster, {
-                    cache: "no-store", 
-                    mode: "cors"
-                });
-                
-                if (!response.ok) {
-                    // Try without .md extension as fallback
-                    const fallbackUrl = WIKI_URL.replace('.md', '') + cacheBuster;
-                    const fallbackResponse = await fetch(fallbackUrl, { cache: "no-store" });
-                    
-                    if (!fallbackResponse.ok) {
-                        throw new Error(`Server returned ${response.status}: Path not found. Check if the Wiki is public.`);
-                    }
-                    return await processResponse(fallbackResponse);
+                const urlsToTry = [
+                    `${WIKI_BASE}/Home.md${cacheBuster}`,
+                    `${WIKI_BASE}/Home${cacheBuster}`
+                ];
+
+                let markdown = "";
+                let successfulFetch = false;
+
+                for (let url of urlsToTry) {
+                    try {
+                        const response = await fetch(url, { cache: "no-store" });
+                        if (response.ok) {
+                            markdown = await response.text();
+                            // Validate it's not a GitHub HTML error page
+                            if (markdown.trim().startsWith('<')) continue;
+                            successfulFetch = true;
+                            break;
+                        }
+                    } catch (e) { }
                 }
+
+                if (!successfulFetch || !markdown) {
+                    throw new Error("Unable to locate Wiki content. Verify that the Wiki is public.");
+                }
+
+                updateProgress(60, "Processing Index...");
+                judgmentData = parseWikiMarkdown(markdown);
                 
-                await processResponse(response);
+                if (judgmentData.length === 0) {
+                    throw new Error("Found data but no judgments could be indexed. Check if your Wiki uses the [Title](Link) format.");
+                }
+
+                updateProgress(100, "Done");
+                
+                setTimeout(() => {
+                    splash.style.opacity = '0';
+                    setTimeout(() => {
+                        splash.style.display = 'none';
+                        renderResults(judgmentData.slice(0, 15), false);
+                        statsCount.innerText = `Searchable Database: ${judgmentData.length} judgments indexed.`;
+                    }, 500);
+                }, 400);
 
             } catch (error) {
-                console.error("Initialization error:", error);
+                console.error("Index Error:", error);
                 showError(error.message);
             }
-        }
-
-        async function processResponse(response) {
-            updateProgress(50, "Downloading Repository Content...");
-            const markdown = await response.text();
-            
-            updateProgress(80, "Indexing Paragraphs...");
-            judgmentData = parseWikiMarkdown(markdown);
-            
-            updateProgress(100, "Sync Complete");
-            
-            setTimeout(() => {
-                splash.style.opacity = '0';
-                setTimeout(() => {
-                    splash.style.display = 'none';
-                    renderResults(judgmentData.slice(0, 10), false);
-                    statsCount.innerText = `Archive Loaded: ${judgmentData.length} judgments indexed.`;
-                }, 500);
-            }, 800);
         }
 
         function updateProgress(val, text) {
@@ -293,7 +325,7 @@
             statusText.style.display = 'none';
             loaderContainer.style.display = 'none';
             errorUI.style.display = 'block';
-            document.getElementById('error-message').innerText = msg || "Connection failed. Ensure the Wiki is public and try again.";
+            document.getElementById('error-message').innerText = msg;
         }
 
         function performSearch() {
@@ -302,13 +334,13 @@
             const startTime = performance.now();
 
             if (!query) {
-                renderResults(judgmentData.slice(0, 10), false);
-                statsCount.innerText = `Displaying latest ${Math.min(10, judgmentData.length)} entries.`;
+                renderResults(judgmentData.slice(0, 15), false);
+                statsCount.innerText = `Latest entries displayed. Total: ${judgmentData.length}`;
                 searchSpeed.style.opacity = '0';
                 return;
             }
 
-            const terms = query.split(/\s+/);
+            const terms = query.split(/\s+/).filter(t => t.length > 0);
             
             const results = judgmentData.filter(doc => {
                 const searchString = `${doc.title} ${doc.citation} ${doc.category} ${doc.paragraphs.join(' ')}`.toLowerCase();
@@ -327,26 +359,25 @@
 
             renderResults(results, true, query);
             
-            statsCount.innerText = `Found ${results.length} matches for "${query}"`;
-            searchSpeed.innerText = `Analyzed ${judgmentData.length} records in ${duration}ms`;
+            statsCount.innerText = `Found ${results.length} matches.`;
+            searchSpeed.innerText = `Processed in ${duration}ms`;
             searchSpeed.style.opacity = '1';
         }
 
         function highlightText(text, query) {
             if (!query) return text;
-            const terms = query.split(/\s+/).filter(t => t.length > 1);
-            if (terms.length === 0) return text;
-
-            let highlighted = text;
-            terms.sort((a, b) => b.length - a.length);
-            
             const logic = document.querySelector('input[name="logic"]:checked').value;
+            
             if (logic === 'exact') {
                 const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
                 return text.replace(regex, '<mark>$1</mark>');
             }
 
-            terms.forEach(term => {
+            const terms = query.split(/\s+/).filter(t => t.length > 1);
+            if (terms.length === 0) return text;
+
+            let highlighted = text;
+            terms.sort((a, b) => b.length - a.length).forEach(term => {
                 const regex = new RegExp(`(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
                 highlighted = highlighted.replace(regex, '<mark>$1</mark>');
             });
@@ -358,18 +389,18 @@
                 resultsList.innerHTML = `
                     <div class="py-20 text-center text-gray-400">
                         <i class="fas fa-search-minus text-4xl mb-4"></i>
-                        <p class="text-lg">No results found for your search criteria.</p>
+                        <p class="text-lg font-medium">No matches found in the index.</p>
                     </div>
                 `;
                 return;
             }
 
             resultsList.innerHTML = data.map(doc => `
-                <div class="search-result-card bg-white p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden">
+                <div class="search-result-card bg-white p-5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden mb-4">
                     <div class="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-3">
                         <div class="flex-1">
                             <div class="text-[10px] font-bold text-blue-600 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                <i class="fas fa-tag"></i> ${highlightText(doc.category, query)}
+                                <i class="fas fa-folder-open"></i> ${highlightText(doc.category, query)}
                             </div>
                             <h3 class="text-lg font-bold text-gray-900 leading-tight mb-1">
                                 ${highlightText(doc.title, query)}
@@ -378,8 +409,8 @@
                                 ${highlightText(doc.citation, query)}
                             </div>
                         </div>
-                        <a href="${doc.link}" target="_blank" class="flex items-center justify-center gap-2 bg-gray-50 hover:bg-blue-600 hover:text-white text-gray-600 px-4 py-2 rounded-xl text-sm font-bold transition-all border border-gray-100 shrink-0">
-                            <i class="fas fa-file-pdf"></i> View Case
+                        <a href="${doc.link}" target="_blank" class="flex items-center justify-center gap-2 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-700 px-4 py-2 rounded-xl text-sm font-bold transition-all shrink-0">
+                            <i class="fas fa-file-pdf"></i> View PDF
                         </a>
                     </div>
                     <div class="space-y-3 pt-3 border-t border-gray-50">
@@ -388,9 +419,6 @@
                                 ${highlightText(p, query)}
                             </p>
                         `).join('')}
-                    </div>
-                    <div class="absolute top-0 right-0 p-1 opacity-[0.03] pointer-events-none">
-                        <i class="fas fa-balance-scale text-6xl"></i>
                     </div>
                 </div>
             `).join('');
